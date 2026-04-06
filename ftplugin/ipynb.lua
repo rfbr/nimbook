@@ -48,9 +48,57 @@ if not vim.b[buf].nimbook then
 
   -- Render the notebook
   renderer.render(buf, notebook)
+
+  -- Place cursor on the first cell's content (not on a fence line)
+  vim.schedule(function()
+    if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_get_current_buf() == buf then
+      local first_cell = notebook.cells[1]
+      if first_cell and first_cell.buf_start then
+        local content_line = first_cell.cell_type == "code"
+          and first_cell.buf_start + 2  -- skip ```lang fence (1-indexed)
+          or first_cell.buf_start + 1
+        local line_count = vim.api.nvim_buf_line_count(buf)
+        content_line = math.min(content_line, line_count)
+        vim.api.nvim_win_set_cursor(0, { content_line, 0 })
+      end
+    end
+  end)
+
+  -- Mark as not modified after initial render
   vim.bo[buf].modified = false
 
   -- === Keymaps (set up FIRST so they always work) ===
+
+  -- Remap j/k to skip structural lines (fences and inter-cell separators).
+  local function is_structural(line_nr)
+    local lc = vim.api.nvim_buf_line_count(buf)
+    if line_nr < 1 or line_nr > lc then return false end
+    local l = vim.api.nvim_buf_get_lines(buf, line_nr - 1, line_nr, false)[1] or ""
+    if l:match("^```") then return true end
+    if l == "" then
+      local prev = line_nr > 1 and (vim.api.nvim_buf_get_lines(buf, line_nr - 2, line_nr - 1, false)[1] or "") or ""
+      local nxt = line_nr < lc and (vim.api.nvim_buf_get_lines(buf, line_nr, line_nr + 1, false)[1] or "") or ""
+      if prev:match("^```$") or nxt:match("^```%a") then return true end
+    end
+    return false
+  end
+
+  local function move(dir)
+    return function()
+      local lc = vim.api.nvim_buf_line_count(buf)
+      for _ = 1, vim.v.count1 do
+        local nr = vim.api.nvim_win_get_cursor(0)[1] + dir
+        while nr >= 1 and nr <= lc and is_structural(nr) do
+          nr = nr + dir
+        end
+        nr = math.max(1, math.min(nr, lc))
+        vim.api.nvim_win_set_cursor(0, { nr, 0 })
+      end
+    end
+  end
+
+  vim.keymap.set("n", "j", move(1), { buffer = buf, silent = true })
+  vim.keymap.set("n", "k", move(-1), { buffer = buf, silent = true })
 
   local km = config.current.keymaps
   local ops = "nimbook.operations"
