@@ -1,8 +1,14 @@
 --- Jupyter message type constructors
 --- Creates properly structured request messages for each Jupyter message type.
+---
+--- IMPORTANT: Empty tables that must encode as JSON objects (not arrays) use
+--- vim.empty_dict(). In Lua, {} is ambiguous; vim.json.encode({}) produces "[]"
+--- which breaks the Jupyter wire protocol.
 local wire = require("nimbook.kernel.wire")
 
 local M = {}
+
+local empty = vim.empty_dict
 
 --- Create an execute_request message
 ---@param session string
@@ -14,15 +20,15 @@ function M.execute_request(session, code, opts)
   return {
     identities = {},
     header = wire.make_header("execute_request", session),
-    parent_header = {},
-    metadata = {},
+    parent_header = empty(),
+    metadata = empty(),
     content = {
       code = code,
       silent = opts.silent or false,
-      store_history = opts.store_history ~= false, -- default true
-      user_expressions = {},
+      store_history = opts.store_history ~= false,
+      user_expressions = empty(),
       allow_stdin = false,
-      stop_on_error = opts.stop_on_error ~= false, -- default true
+      stop_on_error = opts.stop_on_error ~= false,
     },
     buffers = {},
   }
@@ -35,9 +41,9 @@ function M.kernel_info_request(session)
   return {
     identities = {},
     header = wire.make_header("kernel_info_request", session),
-    parent_header = {},
-    metadata = {},
-    content = {},
+    parent_header = empty(),
+    metadata = empty(),
+    content = empty(),
     buffers = {},
   }
 end
@@ -51,8 +57,8 @@ function M.complete_request(session, code, cursor_pos)
   return {
     identities = {},
     header = wire.make_header("complete_request", session),
-    parent_header = {},
-    metadata = {},
+    parent_header = empty(),
+    metadata = empty(),
     content = {
       code = code,
       cursor_pos = cursor_pos,
@@ -71,8 +77,8 @@ function M.inspect_request(session, code, cursor_pos, detail_level)
   return {
     identities = {},
     header = wire.make_header("inspect_request", session),
-    parent_header = {},
-    metadata = {},
+    parent_header = empty(),
+    metadata = empty(),
     content = {
       code = code,
       cursor_pos = cursor_pos,
@@ -89,9 +95,9 @@ function M.interrupt_request(session)
   return {
     identities = {},
     header = wire.make_header("interrupt_request", session),
-    parent_header = {},
-    metadata = {},
-    content = {},
+    parent_header = empty(),
+    metadata = empty(),
+    content = empty(),
     buffers = {},
   }
 end
@@ -104,8 +110,8 @@ function M.shutdown_request(session, restart)
   return {
     identities = {},
     header = wire.make_header("shutdown_request", session),
-    parent_header = {},
-    metadata = {},
+    parent_header = empty(),
+    metadata = empty(),
     content = {
       restart = restart or false,
     },

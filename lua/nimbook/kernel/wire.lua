@@ -53,11 +53,21 @@ end
 ---@param msg nimbook.wire.Message
 ---@param key string Signing key
 ---@return string[] frames
+--- Encode a table as a JSON object, ensuring empty tables become {} not []
+---@param tbl table
+---@return string
+local function encode_dict(tbl)
+  if tbl == nil or (type(tbl) == "table" and next(tbl) == nil) then
+    return "{}"
+  end
+  return vim.json.encode(tbl)
+end
+
 function M.serialize(msg, key)
-  local header_str = vim.json.encode(msg.header)
-  local parent_str = vim.json.encode(msg.parent_header or {})
-  local metadata_str = vim.json.encode(msg.metadata or {})
-  local content_str = vim.json.encode(msg.content or {})
+  local header_str = encode_dict(msg.header)
+  local parent_str = encode_dict(msg.parent_header)
+  local metadata_str = encode_dict(msg.metadata)
+  local content_str = encode_dict(msg.content)
 
   local signature = M.sign(key, header_str, parent_str, metadata_str, content_str)
 
