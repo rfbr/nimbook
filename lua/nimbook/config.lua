@@ -40,8 +40,8 @@ local M = {}
 ---@type nimbook.Config
 M.defaults = {
   keymaps = {
-    execute = "<S-CR>",
-    execute_and_advance = "<C-CR>",
+    execute = "<C-CR>",
+    execute_and_advance = "<S-CR>",
     execute_all = "<M-CR>",
     cell_next = "]c",
     cell_prev = "[c",
