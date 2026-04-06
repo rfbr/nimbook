@@ -418,6 +418,7 @@ function M.execute_cell()
   cell.outputs_visible = true
   -- Mark cell as running
   cell._executing = true
+  cell._exec_start = vim.uv.hrtime() / 1e9
   renderer.redecorate(buf, notebook)
 
   km:execute(code, cell_idx, function(outputs, execution_count)
@@ -425,7 +426,10 @@ function M.execute_cell()
       cell._executing = false
       cell:set_outputs(outputs)
       cell:set_execution_count(execution_count)
-      cell._exec_time = (vim.uv.hrtime() / 1e9) - (km._cell_map[cell_idx] and km._cell_map[cell_idx].started_at or 0)
+      if cell._exec_start then
+        cell._exec_time = (vim.uv.hrtime() / 1e9) - cell._exec_start
+        cell._exec_start = nil
+      end
       if vim.api.nvim_buf_is_valid(buf) then
         renderer.redecorate(buf, notebook)
       end

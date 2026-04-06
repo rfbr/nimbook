@@ -11,6 +11,7 @@ local wire = require("nimbook.kernel.wire")
 ---@field stdin nimbook.zmq.Socket
 ---@field heartbeat nimbook.zmq.Socket
 ---@field _polls table<string, userdata> libuv poll handles
+---@field _timer userdata|nil Fallback timer for missed poll edges
 ---@field _key string HMAC signing key
 ---@field _on_message fun(channel: string, msg: nimbook.wire.Message) Message handler
 local Channels = {}
@@ -26,6 +27,7 @@ function Channels.new(ctx, connection, on_message)
   self._key = connection.key or ""
   self._on_message = on_message
   self._polls = {}
+  self._timer = nil
 
   local transport = connection.transport or "tcp"
   local ip = connection.ip or "127.0.0.1"
@@ -62,6 +64,16 @@ function Channels.new(ctx, connection, on_message)
   self:_start_poll("iopub", self.iopub)
   self:_start_poll("control", self.control)
 
+  -- Fallback timer: ZMQ FDs are edge-triggered and libuv polls are
+  -- level-triggered. This mismatch can cause missed wakeups. A periodic
+  -- check at 100ms catches any stranded messages without meaningful cost.
+  self._timer = vim.uv.new_timer()
+  self._timer:start(100, 100, function()
+    self:_drain("shell", self.shell)
+    self:_drain("iopub", self.iopub)
+    self:_drain("control", self.control)
+  end)
+
   return self
 end
 
@@ -95,17 +107,18 @@ function Channels:_start_poll(name, socket)
     if err then
       return
     end
-    -- ZMQ FD is edge-triggered: when readable, drain all available messages
     self:_drain(name, socket)
   end)
 end
 
 --- Drain all available messages from a socket (non-blocking)
+--- Does NOT call has_events() / zmq_getsockopt(ZMQ_EVENTS) first, because
+--- that can reset the FD signaled state and cause missed wakeups.
+--- Instead, just recv in a loop until EAGAIN.
 ---@param name string Channel name
 ---@param socket nimbook.zmq.Socket
 function Channels:_drain(name, socket)
-  -- Check ZMQ-level events first
-  while socket:has_events() do
+  while true do
     local frames = socket:recv_multipart(zmq.DONTWAIT)
     if frames == nil then
       break
@@ -116,9 +129,14 @@ function Channels:_drain(name, socket)
       vim.schedule(function()
         self._on_message(name, msg)
       end)
-    elseif deserialize_err then
+    else
+      -- Log deserialization errors visibly so they don't silently vanish
       vim.schedule(function()
-        vim.notify("nimbook: " .. name .. ": " .. deserialize_err, vim.log.levels.DEBUG)
+        vim.notify(
+          "nimbook: " .. name .. " deserialize error: " .. (deserialize_err or "unknown")
+            .. " (frames: " .. #frames .. ")",
+          vim.log.levels.WARN
+        )
       end)
     end
   end
@@ -138,6 +156,11 @@ end
 
 --- Stop all polling and close all sockets
 function Channels:close()
+  if self._timer then
+    self._timer:stop()
+    self._timer:close()
+    self._timer = nil
+  end
   for name, poll in pairs(self._polls) do
     poll:stop()
     poll:close()
