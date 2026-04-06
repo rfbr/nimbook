@@ -1,0 +1,36 @@
+name: Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        neovim-version: ["v0.10.4", "stable", "nightly"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Neovim
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.neovim-version }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libzmq5 libssl-dev
+
+      - name: Install treesitter parsers
+        run: |
+          nvim --headless -c "lua pcall(vim.treesitter.language.add, 'markdown')" -c "q" 2>/dev/null || true
+
+      - name: Run tests
+        run: |
+          nvim --headless -u tests/minimal_init.lua -l tests/run_tests.lua
