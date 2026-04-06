@@ -14,6 +14,22 @@ vim.filetype.add({
 local function create_commands()
   local cmd = vim.api.nvim_create_user_command
 
+  -- Create new notebook
+  cmd("NimbookNew", function(opts)
+    local filepath = opts.args
+    if filepath == "" then
+      filepath = "notebook.ipynb"
+    end
+    -- Ensure .ipynb extension
+    if not filepath:match("%.ipynb$") then
+      filepath = filepath .. ".ipynb"
+    end
+    -- Resolve to absolute path
+    filepath = vim.fn.fnamemodify(filepath, ":p")
+    -- Open buffer with this name; ftplugin will create the empty notebook
+    vim.cmd("edit " .. vim.fn.fnameescape(filepath))
+  end, { nargs = "?", desc = "Create a new notebook", complete = "file" })
+
   -- Cell operations
   cmd("NimbookCellAdd", function()
     require("nimbook.operations").add_cell_below()

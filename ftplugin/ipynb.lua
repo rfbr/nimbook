@@ -28,6 +28,9 @@ if not vim.b[buf].nimbook then
 
   if not notebook then
     notebook = Notebook.empty(filepath)
+    -- Seed with one empty code cell so the buffer isn't blank
+    local Cell = require("nimbook.notebook.cell")
+    notebook:insert_cell(1, Cell.new_code())
   end
 
   -- Store notebook reference on the buffer

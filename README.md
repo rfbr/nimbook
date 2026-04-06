@@ -84,6 +84,14 @@ pip install ipykernel
 
 Open any `.ipynb` file. Nimbook activates automatically.
 
+```vim
+" Create a new notebook
+:NimbookNew analysis.ipynb
+
+" Or just open a non-existent .ipynb path
+:e my_notebook.ipynb
+```
+
 ### Kernel
 
 | Command | Key | Description |
