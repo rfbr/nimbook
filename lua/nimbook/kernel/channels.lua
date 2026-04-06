@@ -1,6 +1,6 @@
 --- Jupyter kernel channel management
 --- Creates and manages ZMQ channels (Shell, IOPub, Control, Stdin, Heartbeat)
---- with Neovim libuv event loop integration via vim.uv.new_poll().
+--- with Neovim libuv event loop integration.
 local zmq = require("nimbook.kernel.zmq")
 local wire = require("nimbook.kernel.wire")
 
@@ -11,9 +11,10 @@ local wire = require("nimbook.kernel.wire")
 ---@field stdin nimbook.zmq.Socket
 ---@field heartbeat nimbook.zmq.Socket
 ---@field _polls table<string, userdata> libuv poll handles
----@field _timer userdata|nil Fallback timer for missed poll edges
+---@field _timer userdata|nil Fallback poll timer
 ---@field _key string HMAC signing key
 ---@field _on_message fun(channel: string, msg: nimbook.wire.Message) Message handler
+---@field _closed boolean Whether channels have been closed
 local Channels = {}
 Channels.__index = Channels
 
@@ -28,6 +29,7 @@ function Channels.new(ctx, connection, on_message)
   self._on_message = on_message
   self._polls = {}
   self._timer = nil
+  self._closed = false
 
   local transport = connection.transport or "tcp"
   local ip = connection.ip or "127.0.0.1"
@@ -64,15 +66,16 @@ function Channels.new(ctx, connection, on_message)
   self:_start_poll("iopub", self.iopub)
   self:_start_poll("control", self.control)
 
-  -- Fallback timer: ZMQ FDs are edge-triggered and libuv polls are
-  -- level-triggered. This mismatch can cause missed wakeups. A periodic
-  -- check at 100ms catches any stranded messages without meaningful cost.
+  -- Fallback timer: ZMQ FD signaling can miss wakeups when combined with
+  -- libuv polling. A 50ms Neovim timer catches any stranded messages.
+  -- Uses vim.schedule_wrap so the callback runs in a safe Neovim context.
   self._timer = vim.uv.new_timer()
-  self._timer:start(100, 100, function()
-    self:_drain("shell", self.shell)
-    self:_drain("iopub", self.iopub)
-    self:_drain("control", self.control)
-  end)
+  self._timer:start(50, 50, vim.schedule_wrap(function()
+    if self._closed then
+      return
+    end
+    self:_drain_all()
+  end))
 
   return self
 end
@@ -84,10 +87,15 @@ end
 function Channels:send(channel_name, msg)
   local socket = self[channel_name]
   if not socket then
+    vim.notify("nimbook: unknown channel " .. channel_name, vim.log.levels.ERROR)
     return false
   end
   local frames = wire.serialize(msg, self._key)
-  return socket:send_multipart(frames)
+  local ok = socket:send_multipart(frames)
+  if not ok then
+    vim.notify("nimbook: failed to send on " .. channel_name .. ": " .. zmq.last_error(), vim.log.levels.ERROR)
+  end
+  return ok
 end
 
 --- Start polling a ZMQ socket's FD with libuv
@@ -103,41 +111,46 @@ function Channels:_start_poll(name, socket)
 
   self._polls[name] = poll
 
-  poll:start("r", function(err)
-    if err then
+  poll:start("r", vim.schedule_wrap(function()
+    if self._closed then
       return
     end
-    self:_drain(name, socket)
-  end)
+    self:_drain_all()
+  end))
+end
+
+--- Drain all channels. Called from both poll callbacks and the fallback timer.
+function Channels:_drain_all()
+  self:_drain("shell", self.shell)
+  self:_drain("iopub", self.iopub)
+  self:_drain("control", self.control)
 end
 
 --- Drain all available messages from a socket (non-blocking)
---- Does NOT call has_events() / zmq_getsockopt(ZMQ_EVENTS) first, because
---- that can reset the FD signaled state and cause missed wakeups.
---- Instead, just recv in a loop until EAGAIN.
 ---@param name string Channel name
 ---@param socket nimbook.zmq.Socket
 function Channels:_drain(name, socket)
-  while true do
-    local frames = socket:recv_multipart(zmq.DONTWAIT)
-    if frames == nil then
+  if self._closed or not socket._ptr then
+    return
+  end
+  for _ = 1, 1000 do -- safety cap to prevent infinite loops
+    local ok, frames = pcall(socket.recv_multipart, socket, zmq.DONTWAIT)
+    if not ok or frames == nil then
       break
     end
-    -- Deserialize and dispatch in Neovim's main thread
-    local msg, deserialize_err = wire.deserialize(frames, self._key)
+    -- Deserialize and dispatch
+    local msg, err = wire.deserialize(frames, self._key)
     if msg then
-      vim.schedule(function()
-        self._on_message(name, msg)
-      end)
+      -- Dispatch directly (we're already in vim.schedule context)
+      local dispatch_ok, dispatch_err = pcall(self._on_message, name, msg)
+      if not dispatch_ok then
+        vim.notify("nimbook: dispatch error on " .. name .. ": " .. tostring(dispatch_err), vim.log.levels.ERROR)
+      end
     else
-      -- Log deserialization errors visibly so they don't silently vanish
-      vim.schedule(function()
-        vim.notify(
-          "nimbook: " .. name .. " deserialize error: " .. (deserialize_err or "unknown")
-            .. " (frames: " .. #frames .. ")",
-          vim.log.levels.WARN
-        )
-      end)
+      vim.notify(
+        "nimbook: " .. name .. " deserialize error: " .. (err or "unknown") .. " (" .. #frames .. " frames)",
+        vim.log.levels.WARN
+      )
     end
   end
 end
@@ -149,13 +162,13 @@ function Channels:ping()
   if not ok then
     return false
   end
-  -- Non-blocking check for pong (caller should retry)
   local data = self.heartbeat:recv(zmq.DONTWAIT)
   return data == "ping"
 end
 
 --- Stop all polling and close all sockets
 function Channels:close()
+  self._closed = true
   if self._timer then
     self._timer:stop()
     self._timer:close()

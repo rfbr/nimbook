@@ -35,7 +35,6 @@ if not vim.b[buf].nimbook then
 
   -- Store notebook reference on the buffer
   vim.b[buf].nimbook = true
-  -- We use a module-level registry since vim.b can't store complex Lua objects
   require("nimbook.state").set(buf, notebook)
 
   -- Buffer settings
@@ -45,105 +44,14 @@ if not vim.b[buf].nimbook then
   vim.bo[buf].swapfile = false
 
   -- Enable treesitter markdown if available
-  local ok_ts = pcall(vim.treesitter.start, buf, "markdown")
-  if not ok_ts then
-    -- Fallback: just use syntax highlighting
-    vim.bo[buf].syntax = "markdown"
-  end
+  pcall(vim.treesitter.start, buf, "markdown")
 
   -- Render the notebook
   renderer.render(buf, notebook)
-
-  -- Mark as not modified after initial render
   vim.bo[buf].modified = false
 
-  -- Set up BufWriteCmd for custom save
-  vim.api.nvim_create_autocmd("BufWriteCmd", {
-    buffer = buf,
-    callback = function()
-      local nb = require("nimbook.state").get(buf)
-      if not nb then
-        return
-      end
-      -- Sync buffer content back to notebook data model
-      buf_sync.sync_from_buffer(nb, buf)
-      -- Write to disk
-      local fp = vim.api.nvim_buf_get_name(buf)
-      local write_ok, err = pcall(nb.write, nb, fp)
-      if write_ok then
-        vim.bo[buf].modified = false
-        vim.notify("nimbook: saved " .. vim.fn.fnamemodify(fp, ":t"), vim.log.levels.INFO)
-      else
-        vim.notify("nimbook: save failed: " .. tostring(err), vim.log.levels.ERROR)
-      end
-    end,
-  })
+  -- === Keymaps (set up FIRST so they always work) ===
 
-  -- Redecorate on window resize
-  vim.api.nvim_create_autocmd("WinResized", {
-    buffer = buf,
-    callback = function()
-      local nb = require("nimbook.state").get(buf)
-      if nb then
-        renderer.redecorate(buf, nb)
-      end
-    end,
-  })
-
-  -- Recompute mappings on text change (debounced)
-  local timer = vim.uv.new_timer()
-  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
-    buffer = buf,
-    callback = function()
-      timer:stop()
-      timer:start(100, 0, vim.schedule_wrap(function()
-        local nb = require("nimbook.state").get(buf)
-        if nb and vim.api.nvim_buf_is_valid(buf) then
-          buf_sync.recompute_mappings(nb, buf)
-          renderer.redecorate(buf, nb)
-        end
-      end))
-    end,
-  })
-
-  -- Lazy rendering: redecorate on scroll (debounced)
-  local scroll_timer = vim.uv.new_timer()
-  vim.api.nvim_create_autocmd("WinScrolled", {
-    buffer = buf,
-    callback = function()
-      scroll_timer:stop()
-      scroll_timer:start(50, 0, vim.schedule_wrap(function()
-        local nb = require("nimbook.state").get(buf)
-        if nb and vim.api.nvim_buf_is_valid(buf) then
-          renderer.redecorate(buf, nb)
-        end
-      end))
-    end,
-  })
-
-  -- Set up folding
-  vim.wo.foldmethod = "expr"
-  vim.wo.foldexpr = "v:lua.require'nimbook.fold'.foldexpr()"
-  vim.wo.foldtext = "v:lua.require'nimbook.fold'.foldtext()"
-  vim.wo.foldlevel = 99 -- start with all cells unfolded
-  vim.wo.foldenable = true
-
-  -- Register nvim-cmp source if available
-  pcall(require("nimbook.completion").register)
-
-  -- Clean up on buffer delete
-  vim.api.nvim_create_autocmd("BufDelete", {
-    buffer = buf,
-    callback = function()
-      timer:stop()
-      timer:close()
-      scroll_timer:stop()
-      scroll_timer:close()
-      require("nimbook.state").remove(buf)
-    end,
-  })
-
-  -- Set up keymaps
   local km = config.current.keymaps
   local ops = "nimbook.operations"
   local map_opts = { buffer = buf, silent = true }
@@ -179,9 +87,8 @@ if not vim.b[buf].nimbook then
     end, vim.tbl_extend("force", map_opts, { desc = "Nimbook: " .. desc }))
   end
 
-  -- Hover / inspect keymap (K is conventional for documentation)
+  -- Hover keymap (K -- falls back to LSP if no kernel)
   vim.keymap.set("n", "K", function()
-    -- Only use nimbook hover if kernel is connected, otherwise fall back
     local km_state = require("nimbook.state").get_kernel(buf)
     if km_state and km_state.status ~= "disconnected" then
       require("nimbook.inspect").hover()
@@ -191,5 +98,95 @@ if not vim.b[buf].nimbook then
   end, vim.tbl_extend("force", map_opts, { desc = "Nimbook: Hover docs" }))
 
   -- Cell text objects (ic / ac)
-  require("nimbook.textobjects").setup(buf)
+  pcall(require("nimbook.textobjects").setup, buf)
+
+  -- === Autocmds ===
+
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    buffer = buf,
+    callback = function()
+      local nb = require("nimbook.state").get(buf)
+      if not nb then
+        return
+      end
+      buf_sync.sync_from_buffer(nb, buf)
+      local fp = vim.api.nvim_buf_get_name(buf)
+      local write_ok, err = pcall(nb.write, nb, fp)
+      if write_ok then
+        vim.bo[buf].modified = false
+        vim.notify("nimbook: saved " .. vim.fn.fnamemodify(fp, ":t"), vim.log.levels.INFO)
+      else
+        vim.notify("nimbook: save failed: " .. tostring(err), vim.log.levels.ERROR)
+      end
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("WinResized", {
+    buffer = buf,
+    callback = function()
+      local nb = require("nimbook.state").get(buf)
+      if nb then
+        renderer.redecorate(buf, nb)
+      end
+    end,
+  })
+
+  -- Recompute mappings on text change (debounced)
+  local timer = vim.uv.new_timer()
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    buffer = buf,
+    callback = function()
+      timer:stop()
+      timer:start(100, 0, vim.schedule_wrap(function()
+        local nb = require("nimbook.state").get(buf)
+        if nb and vim.api.nvim_buf_is_valid(buf) then
+          buf_sync.recompute_mappings(nb, buf)
+          renderer.redecorate(buf, nb)
+        end
+      end))
+    end,
+  })
+
+  -- Lazy rendering on scroll (debounced)
+  local scroll_timer = vim.uv.new_timer()
+  vim.api.nvim_create_autocmd("WinScrolled", {
+    buffer = buf,
+    callback = function()
+      scroll_timer:stop()
+      scroll_timer:start(50, 0, vim.schedule_wrap(function()
+        local nb = require("nimbook.state").get(buf)
+        if nb and vim.api.nvim_buf_is_valid(buf) then
+          renderer.redecorate(buf, nb)
+        end
+      end))
+    end,
+  })
+
+  -- Clean up on buffer delete
+  vim.api.nvim_create_autocmd("BufDelete", {
+    buffer = buf,
+    callback = function()
+      timer:stop()
+      timer:close()
+      scroll_timer:stop()
+      scroll_timer:close()
+      require("nimbook.state").remove(buf)
+    end,
+  })
+
+  -- === Optional features (protected so they don't break keymaps) ===
+
+  -- Folding
+  pcall(function()
+    vim.wo.foldmethod = "expr"
+    vim.wo.foldexpr = "v:lua.require'nimbook.fold'.foldexpr()"
+    vim.wo.foldtext = "v:lua.require'nimbook.fold'.foldtext()"
+    vim.wo.foldlevel = 99
+    vim.wo.foldenable = true
+  end)
+
+  -- nvim-cmp completion source
+  pcall(function()
+    require("nimbook.completion").register()
+  end)
 end
