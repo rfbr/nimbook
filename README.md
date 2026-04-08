@@ -106,9 +106,9 @@ Open any `.ipynb` file. Nimbook activates automatically.
 
 | Command | Key | Description |
 |---|---|---|
-| `:NimbookExecute` | `<C-CR>` | Execute current cell |
-| `:NimbookExecuteAndAdvance` | `<S-CR>` | Execute and move to next cell |
-| `:NimbookExecuteAll` | `<M-CR>` | Execute all cells |
+| `:NimbookExecute` | `<CR>` | Execute current cell |
+| `:NimbookExecuteAndAdvance` | `<leader><CR>` | Execute and move to next cell |
+| `:NimbookExecuteAll` | `g<CR>` | Execute all cells |
 
 ### Navigation
 
