@@ -96,12 +96,10 @@ end
 ---@param image_id integer
 ---@param placement_id integer
 ---@return string hl_group name
-local function get_image_hl(image_id, placement_id)
-  local name = string.format("NimbookImg%d_%d", image_id, placement_id)
+local function get_image_hl(image_id)
+  local name = string.format("NimbookImg%d", image_id)
   vim.api.nvim_set_hl(0, name, {
     fg = string.format("#%06x", image_id),
-    sp = string.format("#%06x", placement_id),
-    underline = true, -- required for terminal to emit the sp (underline) color
   })
   return name
 end
@@ -259,7 +257,7 @@ function M.display(buf, cell_idx, image_data, opts)
   -- Build virtual text lines with Unicode placeholders.
   -- Each U+10EEEE char gets combining diacritics encoding row/column.
   -- The fg color encodes image_id; underline color encodes placement_id.
-  local hl = get_image_hl(pl.image_id, pl.id)
+  local hl = get_image_hl(pl.image_id)
   local virt_lines = {}
 
   for row = 0, display_rows - 1 do
