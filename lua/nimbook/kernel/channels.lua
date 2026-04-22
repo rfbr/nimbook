@@ -120,9 +120,10 @@ function Channels:_start_poll(name, socket)
 end
 
 --- Drain all channels. Called from both poll callbacks and the fallback timer.
+--- IOPub is drained first so outputs are collected before shell replies trigger completion.
 function Channels:_drain_all()
-  self:_drain("shell", self.shell)
   self:_drain("iopub", self.iopub)
+  self:_drain("shell", self.shell)
   self:_drain("control", self.control)
 end
 

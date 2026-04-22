@@ -29,6 +29,10 @@ KernelManager.__index = KernelManager
 ---@field cell_idx integer
 ---@field outputs table[]
 ---@field started_at number
+---@field execution_count integer|nil
+---@field reply_received boolean
+---@field idle_received boolean
+---@field on_done fun(outputs: table[], execution_count: integer|nil)|nil
 
 --- Create a new KernelManager
 ---@param opts? { on_output?: fun(msg_id: string, output: table), on_status?: fun(status: string) }
@@ -193,23 +197,16 @@ function KernelManager:execute(code, cell_idx, on_done)
   local msg = messages.execute_request(self.session, code)
   local msg_id = msg.header.msg_id
 
-  -- Track this execution
+  -- Track this execution. Completion requires both execute_reply (shell)
+  -- and status:idle (iopub) to ensure all outputs have been received.
   self._cell_map[msg_id] = {
     cell_idx = cell_idx,
     outputs = {},
     started_at = vim.uv.hrtime() / 1e9,
-  }
-
-  self._pending[msg_id] = {
-    on_reply = function(reply)
-      local state = self._cell_map[msg_id]
-      if state and on_done then
-        local ec = reply.content and reply.content.execution_count
-        on_done(state.outputs, ec)
-      end
-      self._cell_map[msg_id] = nil
-      self._pending[msg_id] = nil
-    end,
+    execution_count = nil,
+    reply_received = false,
+    idle_received = false,
+    on_done = on_done,
   }
 
   self.channels:send("shell", msg)
@@ -300,6 +297,14 @@ function KernelManager:_handle_iopub(msg_type, msg, parent_id)
     local execution_state = msg.content.execution_state
     if execution_state == "idle" then
       self:_set_status("idle")
+      -- Mark this execution's IOPub stream as complete
+      if parent_id then
+        local cell_state = self._cell_map[parent_id]
+        if cell_state then
+          cell_state.idle_received = true
+          self:_maybe_complete(parent_id)
+        end
+      end
     elseif execution_state == "busy" then
       self:_set_status("busy")
     end
@@ -354,15 +359,33 @@ end
 ---@param parent_id string|nil
 function KernelManager:_handle_shell_reply(msg_type, msg, parent_id)
   if msg_type == "execute_reply" and parent_id then
-    local pending = self._pending[parent_id]
-    if pending and pending.on_reply then
-      pending.on_reply(msg)
+    local cell_state = self._cell_map[parent_id]
+    if cell_state then
+      cell_state.execution_count = msg.content and msg.content.execution_count
+      cell_state.reply_received = true
+      self:_maybe_complete(parent_id)
     end
   elseif msg_type == "kernel_info_reply" then
     local pending = self._pending[parent_id]
     if pending and pending.on_reply then
       pending.on_reply(msg)
     end
+  end
+end
+
+--- Complete an execution if both shell reply and IOPub idle have been received.
+--- This ensures all outputs have arrived before calling on_done.
+---@param msg_id string
+function KernelManager:_maybe_complete(msg_id)
+  local cell_state = self._cell_map[msg_id]
+  if not cell_state then
+    return
+  end
+  if cell_state.reply_received and cell_state.idle_received then
+    if cell_state.on_done then
+      cell_state.on_done(cell_state.outputs, cell_state.execution_count)
+    end
+    self._cell_map[msg_id] = nil
   end
 end
 
