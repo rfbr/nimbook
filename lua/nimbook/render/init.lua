@@ -31,17 +31,8 @@ end
 function M.redecorate(buf, notebook, win)
   local language = notebook:get_language()
 
-  -- Clear existing decorations
+  -- Clear existing decorations (extmarks only -- image data stays in terminal)
   cells.clear(buf)
-
-  -- Clear any existing image placements for this buffer
-  local ok_gfx, gfx = pcall(require, "nimbook.graphics")
-  if ok_gfx then
-    local renderer = gfx.get_renderer()
-    if renderer then
-      pcall(renderer.clear_buffer, buf)
-    end
-  end
 
   -- Determine viewport for lazy rendering
   local top_line, bot_line = M._get_viewport(win)

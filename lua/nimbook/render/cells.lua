@@ -230,9 +230,12 @@ function M.render_outputs(buf, cell, cell_idx, win)
     local image_virt = M._try_render_image(buf, cell_idx or 0, output, win)
     if image_virt then
       for _, vl in ipairs(image_virt) do
-        -- Prepend border to each image line
-        table.insert(vl, 1, { bc.vertical .. " ", "NimbookOutputBorder" })
-        virt_lines[#virt_lines + 1] = vl
+        -- Prepend border (copy to avoid mutating cached virt_lines)
+        local bordered = { { bc.vertical .. " ", "NimbookOutputBorder" } }
+        for _, chunk in ipairs(vl) do
+          bordered[#bordered + 1] = chunk
+        end
+        virt_lines[#virt_lines + 1] = bordered
       end
     else
       -- Text output with ANSI color support
@@ -274,7 +277,9 @@ function M.render_outputs(buf, cell, cell_idx, win)
   end
 end
 
---- Try to render an image output using terminal graphics
+--- Try to render an image output using terminal graphics.
+--- Results are cached on the output table so that redecorates don't
+--- re-transmit image data to the terminal (which causes flicker).
 ---@param buf integer
 ---@param cell_idx integer
 ---@param output table
@@ -289,6 +294,12 @@ function M._try_render_image(buf, cell_idx, output, win)
   local image_b64 = data["image/png"] or data["image/jpeg"]
   if not image_b64 then
     return nil
+  end
+
+  -- Return cached result if the window width hasn't changed
+  local win_width = vim.api.nvim_win_get_width(win or 0)
+  if output._nimbook_img and output._nimbook_img.win_width == win_width then
+    return output._nimbook_img.virt_lines
   end
 
   if type(image_b64) == "table" then
@@ -313,22 +324,26 @@ function M._try_render_image(buf, cell_idx, output, win)
 
   local renderer = gfx_init.get_renderer()
   if not renderer then
-    -- Text fallback
     return {
       { { "[Image: inline display requires Kitty, Ghostty, or WezTerm]", "NimbookOutputFolded" } },
     }
   end
 
+  -- Clean up previous placement if re-rendering at a new size
+  if output._nimbook_img and output._nimbook_img.placement then
+    pcall(renderer.clear, output._nimbook_img.placement)
+  end
+
   local ok_display, virt_lines = pcall(renderer.display, buf, cell_idx, image_data, {
-    max_width = vim.api.nvim_win_get_width(win or 0) - 6,
+    max_width = win_width - 6,
     max_height = 20,
   })
 
   if ok_display and virt_lines then
+    output._nimbook_img = { virt_lines = virt_lines, win_width = win_width }
     return virt_lines
   end
 
-  -- Graphics failed, fall back to text
   return {
     { { "[Image: rendering failed]", "NimbookOutputFolded" } },
   }
