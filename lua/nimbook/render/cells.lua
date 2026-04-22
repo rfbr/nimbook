@@ -17,9 +17,11 @@ local function build_border_line(left_char, right_char, label, label_hl, win)
   local hl = "NimbookBorder"
 
   local chunks = {}
+  local sw = vim.api.nvim_strwidth
   if label and #label > 0 then
     local prefix = left_char .. bc.horizontal .. " "
-    local suffix = " " .. string.rep(bc.horizontal, math.max(1, width - #prefix - #label - 3)) .. right_char
+    local fill = math.max(1, width - sw(prefix) - sw(label) - 2)
+    local suffix = " " .. string.rep(bc.horizontal, fill) .. right_char
     chunks[#chunks + 1] = { prefix, hl }
     chunks[#chunks + 1] = { label, label_hl or hl }
     chunks[#chunks + 1] = { suffix, hl }
@@ -130,7 +132,8 @@ function M.render_cell(buf, cell, language, win)
       local base_label = label
       local prefix = bc.top_left .. bc.horizontal .. " "
       local width = vim.api.nvim_win_get_width(win or 0) - vim.fn.getwininfo(win or vim.api.nvim_get_current_win())[1].textoff
-      local suffix_len = math.max(1, width - #prefix - #base_label - #icon - 3)
+      local sw = vim.api.nvim_strwidth
+      local suffix_len = math.max(1, width - sw(prefix) - sw(base_label) - sw(icon) - 2)
       local suffix = " " .. string.rep(bc.horizontal, suffix_len) .. bc.top_right
       top_border = {
         { prefix, "NimbookBorder" },
@@ -186,12 +189,13 @@ function M.render_cell(buf, cell, language, win)
     })
   end
 
-  -- Side borders via sign column for content lines
+  -- Side borders via inline virtual text for content lines
+  local side_hl = is_code and "NimbookBorderCode" or "NimbookBorderMarkdown"
   for line = content_start, content_end do
     if line >= 0 and line < vim.api.nvim_buf_line_count(buf) then
       vim.api.nvim_buf_set_extmark(buf, ns, line, 0, {
-        sign_text = bc.vertical .. " ",
-        sign_hl_group = is_code and "NimbookBorderCode" or "NimbookBorderMarkdown",
+        virt_text = { { bc.vertical .. " ", side_hl } },
+        virt_text_pos = "inline",
         priority = 100,
       })
     end
