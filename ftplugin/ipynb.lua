@@ -135,6 +135,25 @@ if not vim.b[buf].nimbook then
     end, vim.tbl_extend("force", map_opts, { desc = "Nimbook: " .. desc }))
   end
 
+  -- Universal execution keymaps that work in all terminals.
+  -- <C-CR>/<S-CR>/<M-CR> require CSI u (Kitty keyboard protocol) which many
+  -- terminals don't send. <CR> maps to execute-and-advance because on most
+  -- terminals Shift+Enter sends plain CR, matching Jupyter's primary action.
+  local exec_fallbacks = {
+    { "<CR>", ops, "execute_and_advance", "Execute and advance" },
+    { "<leader><CR>", ops, "execute_cell", "Execute cell" },
+    { "g<CR>", ops, "execute_all", "Execute all" },
+  }
+  for _, def in ipairs(exec_fallbacks) do
+    local lhs, mod, fn_name, desc = def[1], def[2], def[3], def[4]
+    -- Skip if already mapped by user config
+    if lhs ~= km.execute and lhs ~= km.execute_and_advance and lhs ~= km.execute_all then
+      vim.keymap.set("n", lhs, function()
+        require(mod)[fn_name]()
+      end, vim.tbl_extend("force", map_opts, { desc = "Nimbook: " .. desc }))
+    end
+  end
+
   -- Hover keymap (K -- falls back to LSP if no kernel)
   vim.keymap.set("n", "K", function()
     local km_state = require("nimbook.state").get_kernel(buf)
