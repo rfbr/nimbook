@@ -21,14 +21,14 @@ Existing solutions require 3-5 plugins stacked together, suffer from Python rplu
 │ Load and explore the dataset.                 │
 ╰───────────────────────────────────────────────╯
 ╭── python [1] 0.3s ── ✔ ──────────────────────╮
-│ import pandas as pd                           │
-│ df = pd.read_csv("data.csv")                  │
-│ df.head()                                     │
-├── output ─────────────────────────────────────┤
-│   col_a  col_b  col_c                         │
-│   1      foo    3.14                           │
-│   2      bar    2.71                           │
-╰───────────────────────────────────────────────╯
+│ import pandas as pd                          │
+│ df = pd.read_csv("data.csv")                 │
+│ df.head()                                    │
+├── output ────────────────────────────────────┤
+│   col_a  col_b  col_c                        │
+│   1      foo    3.14                         │
+│   2      bar    2.71                         │
+╰──────────────────────────────────────────────╯
 ```
 
 ## Installation
