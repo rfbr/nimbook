@@ -375,17 +375,49 @@ function M._output_to_chunks(output)
   elseif output.output_type == "execute_result" or output.output_type == "display_data" then
     local data = output.data or {}
 
-    -- Check for HTML tables (render them nicely)
+    -- Render text/html when available (tables, audio, video, etc.)
     local html = data["text/html"]
     if html and not (data["image/png"] or data["image/jpeg"]) then
       if type(html) == "table" then
         html = table.concat(html)
       end
+      local html_mod = require("nimbook.util.html")
+
       if html:match("<table") then
-        local html_mod = require("nimbook.util.html")
         local text = html_mod.table_to_text(html)
         for line in text:gmatch("([^\n]*)") do
           result[#result + 1] = { { line, "NimbookOutputResult" } }
+        end
+        return result
+      end
+
+      if html:match("<audio") then
+        local src = html:match('<source%s+src="([^"]*)"')
+        local label
+        if src and not src:match("^data:") then
+          label = "Audio: " .. src
+        else
+          local atype = html:match('type="audio/(%w+)"') or "audio"
+          label = "Audio: embedded " .. atype
+        end
+        result[#result + 1] = { { label, "NimbookOutputResult" } }
+        return result
+      end
+
+      if html:match("<video") then
+        local src = html:match('<source%s+src="([^"]*)"') or html:match('<video[^>]+src="([^"]*)"')
+        local label = (src and not src:match("^data:")) and ("Video: " .. src) or "Video: embedded"
+        result[#result + 1] = { { label, "NimbookOutputResult" } }
+        return result
+      end
+
+      -- Generic HTML fallback (widgets, iframes, styled output, etc.)
+      local text = html_mod.to_text(html)
+      if text and #text > 0 and not text:match("^%s*$") then
+        for line in text:gmatch("([^\n]*)") do
+          if line ~= "" then
+            result[#result + 1] = { { line, "NimbookOutputResult" } }
+          end
         end
         return result
       end
