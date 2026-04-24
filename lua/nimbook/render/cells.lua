@@ -392,13 +392,14 @@ function M._output_to_chunks(output)
       end
 
       if html:match("<audio") then
-        local src = html:match('<source%s+src="([^"]*)"')
+        local src = html:match('<source%s+src="([^"]*)"') or html:match('<audio[^>]+src="([^"]*)"')
         local label
         if src and not src:match("^data:") then
           label = "Audio: " .. src
         else
-          local atype = html:match('type="audio/(%w+)"') or "audio"
-          label = "Audio: embedded " .. atype
+          local fmt = html:match('type="audio/([%w%-]+)"')
+            or (src and src:match("^data:audio/([%w%-]+)"))
+          label = fmt and ("Audio: embedded " .. fmt) or "Audio: embedded"
         end
         result[#result + 1] = { { label, "NimbookOutputResult" } }
         return result
@@ -406,7 +407,14 @@ function M._output_to_chunks(output)
 
       if html:match("<video") then
         local src = html:match('<source%s+src="([^"]*)"') or html:match('<video[^>]+src="([^"]*)"')
-        local label = (src and not src:match("^data:")) and ("Video: " .. src) or "Video: embedded"
+        local label
+        if src and not src:match("^data:") then
+          label = "Video: " .. src
+        else
+          local fmt = html:match('type="video/([%w%-]+)"')
+            or (src and src:match("^data:video/([%w%-]+)"))
+          label = fmt and ("Video: embedded " .. fmt) or "Video: embedded"
+        end
         result[#result + 1] = { { label, "NimbookOutputResult" } }
         return result
       end
