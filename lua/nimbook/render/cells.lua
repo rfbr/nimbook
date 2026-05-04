@@ -189,14 +189,18 @@ function M.render_cell(buf, cell, language, win)
     })
   end
 
-  -- Side borders via inline virtual text for content lines
+  -- Side borders via inline virtual text for content lines.
+  -- High priority so indent guides (indent-blankline, mini.indentscope, etc.)
+  -- don't mask the border. virt_text_repeat_linebreak ensures wrapped lines
+  -- continue to show the border.
   local side_hl = is_code and "NimbookBorderCode" or "NimbookBorderMarkdown"
   for line = content_start, content_end do
     if line >= 0 and line < vim.api.nvim_buf_line_count(buf) then
       vim.api.nvim_buf_set_extmark(buf, ns, line, 0, {
         virt_text = { { bc.vertical .. " ", side_hl } },
         virt_text_pos = "inline",
-        priority = 100,
+        virt_text_repeat_linebreak = true,
+        priority = 200,
       })
     end
   end
