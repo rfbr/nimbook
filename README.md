@@ -104,11 +104,15 @@ Open any `.ipynb` file. Nimbook activates automatically.
 
 ### Execution
 
-| Command | Key | Description |
-|---|---|---|
-| `:NimbookExecute` | `<leader><CR>` / `<C-CR>` | Execute current cell |
-| `:NimbookExecuteAndAdvance` | `<CR>` / `<S-CR>` | Execute and move to next cell |
-| `:NimbookExecuteAll` | `g<CR>` / `<M-CR>` | Execute all cells |
+Each action has a universal key that works on all terminals, plus a CSI u variant for terminals with Kitty keyboard protocol support (Kitty, Ghostty, WezTerm).
+
+| Command | Universal | CSI u | Description |
+|---|---|---|---|
+| `:NimbookExecute` | `<leader><CR>` | `<C-CR>` | Execute current cell |
+| `:NimbookExecuteAndAdvance` | `<CR>` | `<S-CR>` | Execute and move to next cell |
+| `:NimbookExecuteAll` | `g<CR>` | `<M-CR>` | Execute all cells |
+
+> **Note:** On most terminals (including macOS), Shift+Enter sends the same keycode as Enter. The `<CR>` mapping is bound to execute-and-advance to match Jupyter's Shift+Enter convention.
 
 ### Navigation
 
@@ -137,6 +141,7 @@ Open any `.ipynb` file. Nimbook activates automatically.
 | `:NimbookOutputToggle` | `<leader>no` | Toggle output visibility |
 | `:NimbookOutputToggleAll` | `<leader>nO` | Toggle all outputs |
 | `:NimbookOutputExpand` | `<leader>ne` | Full output in floating window |
+| `:NimbookPlayMedia` | `<leader>np` | Play audio/video output |
 | `:NimbookOutputClear` | `<leader>nx` | Clear cell output |
 | `:NimbookOutputClearAll` | `<leader>nX` | Clear all outputs |
 
@@ -153,6 +158,10 @@ Open any `.ipynb` file. Nimbook activates automatically.
 ### Inline images
 
 On Kitty, Ghostty, or WezTerm, matplotlib/seaborn/plotly plots render inline below the code cell. Sixel fallback for foot/XTerm. Text fallback for other terminals.
+
+### Audio & video
+
+`IPython.display.Audio` and `IPython.display.Video` outputs show a label in the cell output and can be played with `<leader>np` (or `:NimbookPlayMedia`). Playback uses the first available system player: `mpv`, `ffplay`, `aplay`, `paplay`, or `afplay`.
 
 ### Kernel-powered completion
 

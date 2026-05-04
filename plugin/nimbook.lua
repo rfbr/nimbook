@@ -76,6 +76,10 @@ local function create_commands()
     require("nimbook.operations").output_expand()
   end, { desc = "Show full output in floating window" })
 
+  cmd("NimbookPlayMedia", function()
+    require("nimbook.operations").play_media()
+  end, { desc = "Play audio/video output of current cell" })
+
   -- Kernel operations
   cmd("NimbookKernelStart", function()
     require("nimbook.operations").kernel_start()
