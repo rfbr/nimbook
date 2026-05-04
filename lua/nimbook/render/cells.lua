@@ -190,9 +190,11 @@ function M.render_cell(buf, cell, language, win)
   end
 
   -- Side borders via inline virtual text for content lines.
-  -- High priority so indent guides (indent-blankline, mini.indentscope, etc.)
-  -- don't mask the border. virt_text_repeat_linebreak ensures wrapped lines
-  -- continue to show the border.
+  -- right_gravity=false anchors the border at byte 0 so it stays before
+  -- inserted text (cursor on an empty line lands after the border, and
+  -- typing prepends to buffer text rather than the border).
+  -- High priority defeats indent-guide plugins (indent-blankline, etc.).
+  -- virt_text_repeat_linebreak keeps the border visible on wrapped lines.
   local side_hl = is_code and "NimbookBorderCode" or "NimbookBorderMarkdown"
   for line = content_start, content_end do
     if line >= 0 and line < vim.api.nvim_buf_line_count(buf) then
@@ -200,6 +202,7 @@ function M.render_cell(buf, cell, language, win)
         virt_text = { { bc.vertical .. " ", side_hl } },
         virt_text_pos = "inline",
         virt_text_repeat_linebreak = true,
+        right_gravity = false,
         priority = 200,
       })
     end
