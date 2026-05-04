@@ -258,6 +258,85 @@ function M.output_expand()
   require("nimbook.ui.floating").show_current()
 end
 
+--- Play the first audio/video found in the current cell's outputs
+function M.play_media()
+  local notebook, cell_idx = get_context()
+  if not notebook or not cell_idx then
+    return
+  end
+  local cell = notebook.cells[cell_idx]
+  if cell.cell_type ~= "code" then
+    return
+  end
+  local outputs = cell:get_outputs()
+  for _, output in ipairs(outputs) do
+    if output.output_type == "execute_result" or output.output_type == "display_data" then
+      local data = output.data or {}
+      local html = data["text/html"]
+      if html then
+        if type(html) == "table" then
+          html = table.concat(html)
+        end
+        if html:match("<audio") or html:match("<video") then
+          local src = html:match('<source%s+src="([^"]*)"') or html:match('src="([^"]*)"')
+          if src then
+            M._play_data_uri(src)
+            return
+          end
+        end
+      end
+    end
+  end
+  vim.notify("nimbook: no audio/video in this cell", vim.log.levels.WARN)
+end
+
+--- Decode a data URI and play via system audio player
+---@param uri string Either a data URI or a file path
+function M._play_data_uri(uri)
+  local path
+  if uri:match("^data:") then
+    -- data:audio/x-wav;base64,<payload>
+    local mime, b64 = uri:match("^data:([^;]+);base64,(.+)$")
+    if not b64 then
+      vim.notify("nimbook: unsupported data URI format", vim.log.levels.ERROR)
+      return
+    end
+    local ok, base64 = pcall(require, "nimbook.util.base64")
+    if not ok then
+      return
+    end
+    local decoded = base64.decode(b64)
+    local ext = (mime and mime:match("/([%w%-]+)$") or "wav"):gsub("x%-", "")
+    path = vim.fn.tempname() .. "." .. ext
+    local f = io.open(path, "wb")
+    if not f then
+      vim.notify("nimbook: failed to write temp audio file", vim.log.levels.ERROR)
+      return
+    end
+    f:write(decoded)
+    f:close()
+  else
+    path = uri
+  end
+
+  -- Find an available player
+  local players = {
+    { "mpv", { "--no-video", "--really-quiet", path } },
+    { "ffplay", { "-nodisp", "-autoexit", "-loglevel", "quiet", path } },
+    { "aplay", { path } },
+    { "paplay", { path } },
+    { "afplay", { path } },
+  }
+  for _, p in ipairs(players) do
+    if vim.fn.executable(p[1]) == 1 then
+      vim.fn.jobstart(vim.list_extend({ p[1] }, p[2]), { detach = true })
+      vim.notify("nimbook: playing with " .. p[1], vim.log.levels.INFO)
+      return
+    end
+  end
+  vim.notify("nimbook: no audio player found (install mpv, ffplay, or aplay)", vim.log.levels.WARN)
+end
+
 -- Kernel operations --
 
 --- Get or create the kernel manager for the current buffer

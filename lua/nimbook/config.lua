@@ -58,6 +58,7 @@ M.defaults = {
     output_clear = "<leader>nx",
     output_clear_all = "<leader>nX",
     output_expand = "<leader>ne",
+    play_media = "<leader>np",
     kernel_start = "<leader>ns",
     kernel_restart = "<leader>nr",
     kernel_interrupt = "<leader>ni",

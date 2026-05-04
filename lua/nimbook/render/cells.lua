@@ -399,9 +399,10 @@ function M._output_to_chunks(output)
         else
           local fmt = html:match('type="audio/([%w%-]+)"')
             or (src and src:match("^data:audio/([%w%-]+)"))
-          label = fmt and ("Audio: embedded " .. fmt) or "Audio: embedded"
+          label = fmt and ("Audio: " .. fmt) or "Audio"
         end
-        result[#result + 1] = { { label, "NimbookOutputResult" } }
+        local km = config.current.keymaps.play_media
+        result[#result + 1] = { { label, "NimbookOutputResult" }, { "  " .. km .. " to play", "NimbookOutputFolded" } }
         return result
       end
 

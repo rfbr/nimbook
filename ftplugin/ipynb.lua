@@ -120,6 +120,7 @@ if not vim.b[buf].nimbook then
     { km.output_clear, ops, "clear_output", "Clear output" },
     { km.output_clear_all, ops, "clear_all_outputs", "Clear all outputs" },
     { km.output_expand, ops, "output_expand", "Expand output" },
+    { km.play_media, ops, "play_media", "Play audio/video" },
     { km.kernel_start, ops, "kernel_start", "Start kernel" },
     { km.kernel_restart, ops, "kernel_restart", "Restart kernel" },
     { km.kernel_interrupt, ops, "kernel_interrupt", "Interrupt kernel" },
