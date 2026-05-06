@@ -96,6 +96,16 @@ local function status_icon(cell)
   return "", "NimbookBorder"
 end
 
+--- Set or update an extmark using a stable id stored on the cell.
+--- Passing an existing id moves the extmark in place rather than creating a
+--- new one. This avoids the clear+readd flicker on incremental edits.
+local function set_mark(buf, line, opts, existing_id)
+  if existing_id then
+    opts.id = existing_id
+  end
+  return vim.api.nvim_buf_set_extmark(buf, ns, line, 0, opts)
+end
+
 --- Render decorations for a single cell
 ---@param buf integer Buffer handle
 ---@param cell nimbook.Cell
@@ -106,11 +116,13 @@ function M.render_cell(buf, cell, language, win)
     return
   end
 
+  cell._marks = cell._marks or { sides = {} }
+  local marks = cell._marks
+
   local bc = config.border_chars()
   local label, label_hl = build_cell_label(cell, language)
   local icon, icon_hl = status_icon(cell)
 
-  -- Compose full label with status
   local full_label = label
   if icon ~= "" then
     full_label = label .. icon
@@ -120,15 +132,11 @@ function M.render_cell(buf, cell, language, win)
   local content_start, content_end
 
   if is_code then
-    -- Code cell: buf_start is ```python line, buf_end-1 is ``` line
     content_start = cell.buf_start + 1
-    content_end = cell.buf_end - 2 -- last content line (0-indexed)
+    content_end = cell.buf_end - 2
 
-    -- Overlay the opening fence with top border
     local top_border = build_border_line(bc.top_left, bc.top_right, full_label, label_hl, win)
-    -- Append status icon with its own highlight if present
     if icon ~= "" then
-      -- Rebuild with separate icon highlight
       local base_label = label
       local prefix = bc.top_left .. bc.horizontal .. " "
       local width = vim.api.nvim_win_get_width(win or 0) - vim.fn.getwininfo(win or vim.api.nvim_get_current_win())[1].textoff
@@ -143,70 +151,74 @@ function M.render_cell(buf, cell, language, win)
       }
     end
 
-    vim.api.nvim_buf_set_extmark(buf, ns, cell.buf_start, 0, {
+    marks.top = set_mark(buf, cell.buf_start, {
       virt_text = top_border,
       virt_text_pos = "overlay",
       priority = 100,
-    })
+    }, marks.top)
 
-    -- Overlay the closing fence with bottom border (or output separator)
     local has_outputs = cell.outputs_visible and #cell:get_outputs() > 0
     local close_line = cell.buf_end - 1
 
     if has_outputs then
       local output_border = build_border_line(bc.tee_right, bc.tee_left, "output", "NimbookOutputBorder", win)
-      vim.api.nvim_buf_set_extmark(buf, ns, close_line, 0, {
+      marks.bottom = set_mark(buf, close_line, {
         virt_text = output_border,
         virt_text_pos = "overlay",
         priority = 100,
-      })
+      }, marks.bottom)
     else
       local bottom_border = build_border_line(bc.bottom_left, bc.bottom_right, nil, nil, win)
-      vim.api.nvim_buf_set_extmark(buf, ns, close_line, 0, {
+      marks.bottom = set_mark(buf, close_line, {
         virt_text = bottom_border,
         virt_text_pos = "overlay",
         priority = 100,
-      })
+      }, marks.bottom)
     end
   else
     -- Markdown cell: no fences in buffer, use virtual lines
     content_start = cell.buf_start
     content_end = cell.buf_end - 1
 
-    -- Top border as virtual line above the first line
     local top_border = build_border_line(bc.top_left, bc.top_right, full_label, label_hl, win)
-    vim.api.nvim_buf_set_extmark(buf, ns, cell.buf_start, 0, {
+    marks.top = set_mark(buf, cell.buf_start, {
       virt_lines = { top_border },
       virt_lines_above = true,
       priority = 100,
-    })
+    }, marks.top)
 
-    -- Bottom border as virtual line below the last line
     local bottom_border = build_border_line(bc.bottom_left, bc.bottom_right, nil, nil, win)
-    vim.api.nvim_buf_set_extmark(buf, ns, cell.buf_end - 1, 0, {
+    marks.bottom = set_mark(buf, cell.buf_end - 1, {
       virt_lines = { bottom_border },
       priority = 100,
-    })
+    }, marks.bottom)
   end
 
-  -- Side borders via inline virtual text for content lines.
-  -- right_gravity=false anchors the border at byte 0 so it stays before
-  -- inserted text (cursor on an empty line lands after the border, and
-  -- typing prepends to buffer text rather than the border).
-  -- High priority defeats indent-guide plugins (indent-blankline, etc.).
-  -- virt_text_repeat_linebreak keeps the border visible on wrapped lines.
+  -- Side borders. Reuse existing extmark IDs (indexed by content-line offset)
+  -- so updates move them in place instead of clearing and re-creating.
   local side_hl = is_code and "NimbookBorderCode" or "NimbookBorderMarkdown"
+  local new_sides = {}
+  local idx = 0
+  local line_count = vim.api.nvim_buf_line_count(buf)
   for line = content_start, content_end do
-    if line >= 0 and line < vim.api.nvim_buf_line_count(buf) then
-      vim.api.nvim_buf_set_extmark(buf, ns, line, 0, {
+    idx = idx + 1
+    if line >= 0 and line < line_count then
+      new_sides[idx] = set_mark(buf, line, {
         virt_text = { { bc.vertical .. " ", side_hl } },
         virt_text_pos = "inline",
         virt_text_repeat_linebreak = true,
         right_gravity = false,
         priority = 200,
-      })
+      }, marks.sides[idx])
     end
   end
+  -- Drop side IDs that are no longer needed (cell got shorter)
+  for i = #new_sides + 1, #marks.sides do
+    if marks.sides[i] then
+      pcall(vim.api.nvim_buf_del_extmark, buf, ns, marks.sides[i])
+    end
+  end
+  marks.sides = new_sides
 end
 
 --- Render output virtual lines below a code cell
@@ -218,12 +230,21 @@ function M.render_outputs(buf, cell, cell_idx, win)
   if cell.cell_type ~= "code" then
     return
   end
+  -- Drop any stale output extmark when outputs are hidden or empty
+  local function drop_outputs()
+    if cell._marks and cell._marks.outputs then
+      pcall(vim.api.nvim_buf_del_extmark, buf, ns, cell._marks.outputs)
+      cell._marks.outputs = nil
+    end
+  end
   if not cell.outputs_visible or not cell.buf_end then
+    drop_outputs()
     return
   end
 
   local outputs = cell:get_outputs()
   if #outputs == 0 then
+    drop_outputs()
     return
   end
 
@@ -277,10 +298,11 @@ function M.render_outputs(buf, cell, cell_idx, win)
   -- Attach virtual lines below the closing fence line
   local close_line = cell.buf_end - 1
   if close_line >= 0 and close_line < vim.api.nvim_buf_line_count(buf) then
-    vim.api.nvim_buf_set_extmark(buf, ns, close_line, 0, {
+    cell._marks = cell._marks or { sides = {} }
+    cell._marks.outputs = set_mark(buf, close_line, {
       virt_lines = virt_lines,
       priority = 90,
-    })
+    }, cell._marks.outputs)
   end
 end
 

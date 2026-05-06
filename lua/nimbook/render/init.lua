@@ -19,20 +19,25 @@ function M.render(buf, notebook, win)
     vim.bo[buf].modifiable = was_modifiable
   end
 
-  -- Apply decorations
+  -- Buffer was just rewritten -- any tracked extmark IDs are now stale.
+  -- Clear existing extmarks and reset per-cell mark tracking.
+  cells.clear(buf)
+  for _, cell in ipairs(notebook.cells) do
+    cell._marks = nil
+  end
+
   M.redecorate(buf, notebook, win)
 end
 
 --- Re-apply decorations without changing buffer content
 --- Uses lazy rendering: only decorates cells in or near the visible viewport.
+--- Updates extmarks in place using stable IDs stored on each cell -- avoids
+--- the clear+readd flicker on incremental edits like 'o'.
 ---@param buf integer
 ---@param notebook nimbook.Notebook
 ---@param win? integer
 function M.redecorate(buf, notebook, win)
   local language = notebook:get_language()
-
-  -- Clear existing decorations (extmarks only -- image data stays in terminal)
-  cells.clear(buf)
 
   -- Determine viewport for lazy rendering
   local top_line, bot_line = M._get_viewport(win)
