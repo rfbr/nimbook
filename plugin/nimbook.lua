@@ -3,13 +3,6 @@ if vim.g.loaded_nimbook then
 end
 vim.g.loaded_nimbook = true
 
--- Register .ipynb filetype
-vim.filetype.add({
-  extension = {
-    ipynb = "ipynb",
-  },
-})
-
 -- Commands
 local function create_commands()
   local cmd = vim.api.nvim_create_user_command
