@@ -116,7 +116,8 @@ function M.render_cell(buf, cell, language, win)
     return
   end
 
-  cell._marks = cell._marks or { sides = {} }
+  cell._marks = cell._marks or { sides = {}, right_sides = {} }
+  cell._marks.right_sides = cell._marks.right_sides or {}
   local marks = cell._marks
 
   local bc = config.border_chars()
@@ -198,18 +199,42 @@ function M.render_cell(buf, cell, language, win)
   -- so updates move them in place instead of clearing and re-creating.
   local side_hl = is_code and "NimbookBorderCode" or "NimbookBorderMarkdown"
   local new_sides = {}
+  local new_right_sides = {}
   local idx = 0
   local line_count = vim.api.nvim_buf_line_count(buf)
   for line = content_start, content_end do
     idx = idx + 1
     if line >= 0 and line < line_count then
-      new_sides[idx] = set_mark(buf, line, {
-        virt_text = { { bc.vertical .. " ", side_hl } },
-        virt_text_pos = "inline",
-        virt_text_repeat_linebreak = true,
-        right_gravity = false,
-        priority = 200,
-      }, marks.sides[idx])
+      local text = vim.api.nvim_buf_get_lines(buf, line, line + 1, false)[1] or ""
+      local first = text:sub(1, 1)
+      local left_opts
+      if first == "\t" or first == " " or text == "" then
+        -- Leading whitespace (or empty line): overlay border in the gutter
+        -- area without shifting content. Avoids a Neovim quirk where inline
+        -- virt_text at col 0 of a tab-indented line is not rendered.
+        left_opts = {
+          virt_text = { { bc.vertical .. " ", side_hl } },
+          virt_text_pos = "overlay",
+          virt_text_win_col = 0,
+          hl_mode = "combine",
+          priority = 65535,
+        }
+      else
+        left_opts = {
+          virt_text = { { bc.vertical .. " ", side_hl } },
+          virt_text_pos = "inline",
+          right_gravity = false,
+          hl_mode = "combine",
+          priority = 65535,
+        }
+      end
+      new_sides[idx] = set_mark(buf, line, left_opts, marks.sides[idx])
+      new_right_sides[idx] = set_mark(buf, line, {
+        virt_text = { { bc.vertical, side_hl } },
+        virt_text_pos = "right_align",
+        hl_mode = "combine",
+        priority = 65535,
+      }, marks.right_sides[idx])
     end
   end
   -- Drop side IDs that are no longer needed (cell got shorter)
@@ -218,7 +243,13 @@ function M.render_cell(buf, cell, language, win)
       pcall(vim.api.nvim_buf_del_extmark, buf, ns, marks.sides[i])
     end
   end
+  for i = #new_right_sides + 1, #marks.right_sides do
+    if marks.right_sides[i] then
+      pcall(vim.api.nvim_buf_del_extmark, buf, ns, marks.right_sides[i])
+    end
+  end
   marks.sides = new_sides
+  marks.right_sides = new_right_sides
 end
 
 --- Render output virtual lines below a code cell
@@ -252,6 +283,21 @@ function M.render_outputs(buf, cell, cell_idx, win)
   local max_lines = config.current.render.output_max_lines
   local virt_lines = {}
   local total_text_lines = 0
+  local sw = vim.api.nvim_strwidth
+  local width = vim.api.nvim_win_get_width(win or 0)
+    - vim.fn.getwininfo(win or vim.api.nvim_get_current_win())[1].textoff
+
+  local function add_right_border(line_chunks)
+    local used = 0
+    for _, chunk in ipairs(line_chunks) do
+      used = used + sw(chunk[1])
+    end
+    local pad = math.max(0, width - used - 1)
+    if pad > 0 then
+      line_chunks[#line_chunks + 1] = { string.rep(" ", pad), "NimbookOutputBorder" }
+    end
+    line_chunks[#line_chunks + 1] = { bc.vertical, "NimbookOutputBorder" }
+  end
 
   for _, output in ipairs(outputs) do
     -- Check for image outputs first
@@ -263,6 +309,7 @@ function M.render_outputs(buf, cell, cell_idx, win)
         for _, chunk in ipairs(vl) do
           bordered[#bordered + 1] = chunk
         end
+        add_right_border(bordered)
         virt_lines[#virt_lines + 1] = bordered
       end
     else
@@ -275,6 +322,7 @@ function M.render_outputs(buf, cell, cell_idx, win)
           for _, chunk in ipairs(chunks) do
             line_chunks[#line_chunks + 1] = chunk
           end
+          add_right_border(line_chunks)
           virt_lines[#virt_lines + 1] = line_chunks
         end
       end
@@ -284,21 +332,22 @@ function M.render_outputs(buf, cell, cell_idx, win)
   -- Add fold indicator if truncated
   if total_text_lines > max_lines then
     local remaining = total_text_lines - max_lines
-    virt_lines[#virt_lines + 1] = {
+    local fold_line = {
       { bc.vertical .. " ", "NimbookOutputBorder" },
       { "... " .. remaining .. " more lines (press <leader>ne to expand)", "NimbookOutputFolded" },
     }
+    add_right_border(fold_line)
+    virt_lines[#virt_lines + 1] = fold_line
   end
 
   -- Bottom border after outputs
-  local width = vim.api.nvim_win_get_width(win or 0) - vim.fn.getwininfo(win or vim.api.nvim_get_current_win())[1].textoff
   local bottom = bc.bottom_left .. string.rep(bc.horizontal, math.max(1, width - 2)) .. bc.bottom_right
   virt_lines[#virt_lines + 1] = { { bottom, "NimbookBorder" } }
 
   -- Attach virtual lines below the closing fence line
   local close_line = cell.buf_end - 1
   if close_line >= 0 and close_line < vim.api.nvim_buf_line_count(buf) then
-    cell._marks = cell._marks or { sides = {} }
+    cell._marks = cell._marks or { sides = {}, right_sides = {} }
     cell._marks.outputs = set_mark(buf, close_line, {
       virt_lines = virt_lines,
       priority = 90,

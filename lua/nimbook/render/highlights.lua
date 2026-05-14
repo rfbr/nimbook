@@ -3,10 +3,14 @@ local M = {}
 function M.setup()
   local hl = vim.api.nvim_set_hl
 
-  -- Cell borders
-  hl(0, "NimbookBorder", { link = "FloatBorder" })
-  hl(0, "NimbookBorderCode", { link = "FloatBorder" })
-  hl(0, "NimbookBorderMarkdown", { link = "FloatBorder" })
+  -- Cell borders. Use only the fg from FloatBorder so the cursor-line and
+  -- normal-line backgrounds show through behind the border glyphs.
+  local fb = vim.api.nvim_get_hl(0, { name = "FloatBorder", link = false })
+  local border_fg = fb.fg or fb.foreground
+  hl(0, "NimbookBorder", { fg = border_fg })
+  hl(0, "NimbookBorderCode", { fg = border_fg })
+  hl(0, "NimbookBorderMarkdown", { fg = border_fg })
+  hl(0, "NimbookOutputBorder", { fg = border_fg })
 
   -- Cell header labels
   hl(0, "NimbookCellType", { link = "Type" })
@@ -27,7 +31,6 @@ function M.setup()
   hl(0, "NimbookOutputStderr", { link = "DiagnosticError" })
   hl(0, "NimbookOutputResult", { link = "Special" })
   hl(0, "NimbookOutputError", { link = "ErrorMsg" })
-  hl(0, "NimbookOutputBorder", { link = "FloatBorder" })
   hl(0, "NimbookOutputFolded", { link = "Comment" })
 
   -- Cell content background (subtle differentiation)
